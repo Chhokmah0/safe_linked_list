@@ -39,29 +39,25 @@ impl<'id, T> SafeLinkedList<'id, T> {
 
     pub fn push_back(&mut self, elem: T, token: &mut GhostToken<'id>) {
         let (one, two) = Full::split::<1, 1>(Full::new(GhostCell::new(Node::with_elem(elem))));
-        match self.tail.take() {
-            Some(left) => {
-                left.borrow_mut(token).next = Some(one);
-                two.borrow_mut(token).prev = Some(left);
-                self.tail = Some(two);
-            }
-            None => {
-                self.head = Some(one);
-                self.tail = Some(two);
-            }
+        if let Some(left) = self.tail.take() {
+            left.borrow_mut(token).next = Some(one);
+            two.borrow_mut(token).prev = Some(left);
+            self.tail = Some(two);
+        } else {
+            self.head = Some(one);
+            self.tail = Some(two);
         }
         self.len += 1;
     }
 
     pub fn pop_back(&mut self, token: &mut GhostToken<'id>) -> Option<T> {
         let two = self.tail.take()?;
-        let one = match two.borrow_mut(token).prev.take() {
-            Some(left) => {
-                let one = left.borrow_mut(token).next.take().unwrap();
-                self.tail = Some(left);
-                one
-            }
-            None => self.head.take().unwrap(),
+        let one = if let Some(left) = two.borrow_mut(token).prev.take() {
+            let one = left.borrow_mut(token).next.take().unwrap();
+            self.tail = Some(left);
+            one
+        } else {
+            self.head.take().unwrap()
         };
         // GhostCell 无法移动，而 Full::into_inner 可以在不移动的情况下拿出内部所有权
         Some(Full::into_inner(Full::join(one, two)).into_inner().elem)
