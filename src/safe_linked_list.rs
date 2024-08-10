@@ -96,6 +96,30 @@ impl<'id, T> SafeLinkedList<'id, T> {
     }
 }
 
+// IntoIter 存在的期间会占用整个 token，这是否合理呢？
+// 应该是合理的，当有多个不相关数据结构时，应该创建多个 token 分别进行管理
+pub struct IntoIter<'a, 'id, T> {
+    token: &'a mut GhostToken<'id>,
+    list: SafeLinkedList<'id, T>,
+}
+
+impl<'id, T> SafeLinkedList<'id, T> {
+    pub fn into_iter<'a>(self, token: &'a mut GhostToken<'id>) -> IntoIter<'a, 'id, T> {
+        IntoIter {
+            token: token,
+            list: self,
+        }
+    }
+}
+
+impl<'a, 'id, T> Iterator for IntoIter<'a, 'id, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.list.pop_front(self.token)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -160,11 +184,42 @@ mod tests {
             list.push_back(1, &mut token);
             list.push_back(2, &mut token);
             list.push_back(3, &mut token);
-            
+
             assert_eq!(Some(1), list.pop_front(&mut token));
             assert_eq!(Some(2), list.pop_front(&mut token));
             assert_eq!(Some(3), list.pop_front(&mut token));
             assert_eq!(None, list.pop_front(&mut token));
         });
+    }
+
+    #[test]
+    fn into_iter() {
+        GhostToken::new(|mut token| {
+            let mut list = SafeLinkedList::new();
+            list.push_back(1, &mut token);
+            list.push_back(2, &mut token);
+            list.push_back(3, &mut token);
+            let vec: Vec<_> = list.into_iter(&mut token).collect();
+            assert_eq!(vec, vec![1, 2, 3]);
+        });
+    }
+
+    #[test]
+    fn multi_lists() {
+        GhostToken::new(|mut token1| {
+            GhostToken::new(move |mut token2| {
+                let mut list1 = SafeLinkedList::new();
+                let mut list2 = SafeLinkedList::new();
+                list1.push_back(1, &mut token1);
+                list1.push_back(2, &mut token1);
+                list2.push_back(1, &mut token2);
+                list2.push_back(2, &mut token2);
+                for _ in list1.into_iter(&mut token1) {
+                    list2.push_back(3, &mut token2);
+                }
+                let vec: Vec<_> = list2.into_iter(&mut token2).collect();
+                assert_eq!(vec, vec![1, 2, 3, 3]);
+            })
+        })
     }
 }
