@@ -120,6 +120,33 @@ impl<'a, 'id, T> Iterator for IntoIter<'a, 'id, T> {
     }
 }
 
+pub struct Iter<'a, 'id, T> {
+    token: &'a GhostToken<'id>,
+    node_ptr: Option<&'a Half<'id, T>>,
+}
+
+impl<'id, T> SafeLinkedList<'id, T> {
+    pub fn iter<'a, 'b: 'a>(&'a self, token: &'b GhostToken<'id>) -> Iter<'a, 'id, T> {
+        Iter {
+            token,
+            node_ptr: self.head.as_ref(),
+        }
+    }
+}
+
+impl<'a, 'id, T> Iterator for Iter<'a, 'id, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(rc) = self.node_ptr.take() {
+            self.node_ptr = rc.borrow(self.token).next.as_ref();
+            Some(&rc.borrow(self.token).elem)
+        } else {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +247,39 @@ mod tests {
                 let vec: Vec<_> = list2.into_iter(&mut token2).collect();
                 assert_eq!(vec, vec![1, 2, 3, 3]);
             })
+        })
+    }
+
+    #[test]
+    fn iter() {
+        GhostToken::new(|mut token| {
+            let mut list = SafeLinkedList::new();
+            list.push_back(1, &mut token);
+            list.push_back(2, &mut token);
+            list.push_back(3, &mut token);
+            let vec: Vec<_> = list.iter(&token).map(|x| *x).collect();
+            let vec2: Vec<_> = list.into_iter(&mut token).collect();
+            assert_eq!(vec, vec2);
+        })
+    }
+
+    #[test]
+    fn iter2() {
+        GhostToken::new(|mut token| {
+            let mut list = SafeLinkedList::new();
+            list.push_back(1, &mut token);
+            list.push_back(2, &mut token);
+            list.push_back(3, &mut token);
+            let mut cnt = 0;
+            for _ in list.iter(&token) {
+                for _ in list.iter(&token) {
+                    cnt += 1;
+                }
+            }
+            assert_eq!(cnt, 9);
+            list.pop_back(&mut token);
+            list.pop_back(&mut token);
+            list.pop_back(&mut token);
         })
     }
 }
